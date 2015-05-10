@@ -1,160 +1,269 @@
 
-"use strict"
-(function ($) {
-	var fields = [];
-	fields = getFledgedElem ();
-	
-	function getFledgedElem() {
-		var fields = [],
-			ajax_resp = [],
-			i;
-			
-		// mockup form elements fed by server
-		ajax_resp = (function () {
-			var raw = [],
-				schm;
-			schm = {
-				'*': ['parent', 'type', 'id', 'init'],
-				'*-init(text)': ['default'],
-				'*-init(select)': ['default', 'options', 'multiple']
-			};
-			raw.push (schm);
-			raw.push ([0, 'text', 'my_form_fld_1', ['input your name...']]);
-			raw.push ([0, 'select', 'my_form_fld_2', [0, ['China', 'USA', 'India']]);
-			raw.push ([0, 'radio', 'my_form_fld_3', [0, ['male', 'female']]);
-			
-			return raw;
-		} ());
-		
-		fields = (function (raw) {
-			return init (raw);
-			function Field () {
-			};
-			function init (raw) {
-				var map,
-					fields = [],
-					col_schm;
-				// Decouple php table with mapped js obj hierarchy to free php from aligning with js obj property names and initializer order
-				// The syntax of map naming: a sequence of match markers separated with dash '-', while each marker is represented by target 
-				// object property which is given an array in source, which is followed a parenthesized value of that object's property 'type'.
-				map = {	'*': {
-							'parent': 'parent',	// schema column name as map property, Field property name as map value
-							'type': 'type',
-							'id': 'id',
-							'init': 'init'
-						},
-						'*-init(text)': {
-							'default': 'default'
-						},
-						'*-init(select)': {
-							'default': 'default',
-							'options': 'options',
-							'multiple':	'multiple'
-						}
-					};
-					
-				schm = raw.shift();
-				cb = function (ctx, depth, flag) {
-					var cur,
-						next;
-					cur = ctx[depth];
-					if (flag === 'fwd' && depth) {
-						cur.vistor = {};
-						last = ctx[depth - 1];
-					} else if (flag === 'bck' && depth) {
-						last = ctx[depth - 1];
-						last.vistor[last.node] = cur.vistor;
-					} else if (flag === 'mid') {
-						cur.vistor[cur.node] = 1;
-					}
-				}
-				utility.visitTree(raw, cb, ret);
-				console.log (ret);
-				this.tableMap = function (orig, schm, map) {
-					orig.foreach ( function (elm) {
-						var obj = new Field();
-						elm.foreach (function (val, id) {
-							this[map[col_schm[id]]] = val;
-						}, obj);
-						fields.push (obj);
-					});
-					return fields;
-				};
-				utility.tableMap(raw, map);
-				);
-			}
-		} (ajax_resp));
-		
-		;
-	}
-				function convArrayObj (ctx, stage) {
-					var vst = ctx[depth].vst;
-					
-					switch (stage) {
-					case 'fwd':
-						if (map[depth]) {
-							vst.schm = map[depth];
-						} else {
-							node = ctx[depth - 1].node;
-							obj = ctx[depth - 1].vst.obj;
-							
-							if (node.ctx[depth - 1].id + '(' + node')'){
-							
-						}
-						ctx[depth].vst = {};
-						break;
-					case 'mid':
-						ctx[depth].vst. = 
-					}
-				}		
-	utility = (function () {
-		// Protocol for interoperation between tree engine and visitor:
-		// 		Stage 'fwd': depth has increased and new ctx has been created.
-		//		stage 'bck': depth has NOT been decreased and ctx pending to exit is available. 
-		this.visitTree = function (tree, cb, ret) {
-			var trace = [],
-				depth,
-				node_temp,
-				ctx;
+(function ($, global) {
+	"use strict";
+	var fields,
+		getBEFields,
+		convFields,
+		utility,
+		console = global.console;
 
-			depth = 1;
-			trace.push ({
-				vistor: ret, // visitor in each stack context 
-				node: tree, 	// tree node in each stack context
-				id: 0		// current index in each stack context
-			});
-			while (depth >= 0) {
-				// trace[depth].id++;
-				if (trace[depth].id >= trace[depth].node.length) {
-					trace.pop();
-					cb.backtrace.call (ctx, depth, 'bck');
-					depth--;
-					if (depth >= 0) {
-						trace[depth].id++;
+	$(function () {
+		var raw;
+		utility.out ('formcast.js entered.');
+		raw = getBEFields();
+		fields = convFields(raw);
+	});
+
+	// mockup of form fields fed by server
+	getBEFields = function () {
+		var raw = [],
+			schm = {
+				'1': ['parent', 'type', 'id', 'init'],
+				'text.init': ['default'],
+				'select.init': ['default', 'options', 'multiple'],
+				'radio.init': ['default', 'options', 'multiple']
+			};
+
+		raw.push(schm);
+		raw.push([0, 'text', 'my_form_fld_1', ['input your name...']]);
+		raw.push([0, 'select', 'my_form_fld_2', [0, ['China', 'USA', 'India']]]);
+		raw.push([0, 'radio', 'my_form_fld_3', [0, ['male', 'female']]]);
+		return raw;
+	};
+
+	// permit reuse for backend array mapping to frontend associative object
+	convFields = function (raw) {
+		var map_backend,
+			map_frontend,
+			util = utility,
+			cb,
+			getScheme,
+			fields;	// frontend array of field objects
+			
+		// callback invoked in DFS search of backend field array
+		cb = function (stacks, depth, flag) {
+			var cur,
+				last,
+				sub,
+				id;
+			cur = stacks[depth].client;
+			switch (flag) {
+			case 'fwd':
+				cur.schm = getScheme(stacks, depth);
+				if (cur.schm) {
+					sub = {};
+					if (!depth) {
+						fields = {};
 					}
 				} else {
-					ctx = trace[depth];
-					node_temp = ctx.node[ctx.id];
-					if (Array.isArray(node_temp)) {
-						trace.push ({vistor: undefined, node: node_temp, id: 0});
-						depth++;
-						cb.visit&extend.call (ctx, depth, 'fwd');
+					sub = [];
+					if (!depth) {
+						fields = [];
+					}
+				}
+				
+				cur.sub = depth ? sub : fields;
+				if (depth) {
+					last = stacks[depth - 1].client;
+					id = stacks[depth - 1].id;
+					last.sub[last.schm ? last.schm[id] : id] = cur.sub;
+				}
+				break;
+			case 'bck':
+				// nothing to do in addition to 'fwd'
+				break;
+			case 'mid':
+				// fill backend array value into frontend mapped property if scheme exists, or
+				// into increased array element otherwise.
+				id = stacks[depth].id;
+				cur.sub[cur.schm ? cur.schm[id] : id] = stacks[depth].subtree[id];
+				break;
+			default:
+				break;
+			}
+		};
+		
+		getScheme = function (stacks, depth) {
+			var schm = depth,	// use depth rule in bottom line
+				last_schm,
+				last,
+				map = [];
+			// preceded with rule of 'object.property' if possible
+			if (depth) {
+				last = stacks[depth - 1];
+				last_schm = last.client.schm;
+				if (last_schm && last.client.sub.type) {
+					schm = last.client.sub.type + '.' + last_schm[last.id];
+					// restore if unspecified 
+					if ('undefined' === map_backend[schm]) {
+						schm = depth;
+					}
+				}
+			}
+			if (!map_backend[schm] || !map_frontend[schm]) {
+if (depth == 2) {
+	depth = 2;
+}
+			util.out ('No scheme to map on level '+depth+' backend frontend struct.');
+				map = false;
+			} else {
+				map_backend[schm].forEach(function (v, i) {
+					map[i] = map_frontend[schm][v];
+				});
+			}
+			return map;
+		};
+		
+		/* The mapping mechanism here is proposed to:
+			1. allow array to be json transfered which is superior to object in size;
+			2. decouple array with mapped js object hierarchy in terms of array order and property naming.
+		The syntax of map id: 
+			1. [digital]: the level of array;
+			2. [alpha_A].[alpha_B]: mimic 'stacks.property' style. alpha_A is the value of property 'type' 
+			in object of last level. alpha_B is name of current traced property in object of last level. 
+		The negotiated interface between front and back ends are only: 
+			1. property names in each frontend sub-map.
+			2. value of type like 'text', 'select'. */
+		map_frontend = {
+			'1': {
+				'parent': 'parent',	// schema column name as map property, Field property name as map value
+				'type': 'type',
+				'id': 'id',
+				'init': 'init'
+			},
+			'text.init': {
+				'default': 'default'
+			},
+			'select.init': {
+				'default': 'default',
+				'options': 'options',
+				'multiple':	'multiple'
+			}
+			'radio.init': {
+				'default': 'default',
+				'options': 'options',
+				'multiple':	'multiple'
+			}
+		};
+		map_backend = raw.shift ();
+
+		util.dfsTree (raw, cb);
+		return fields;
+	};
+
+	utility = (function () {
+		/* @method dfsTree: The fabric of depth first search on a tree implemented by js object or js array.
+			Client may reuse it to abstract the customized logic from of tree traverse.
+		@param tree: the data structure of tree in array or in associative object.
+		@param cb: the callback functions for client to manipulate node in tree search:
+		@callback_param stacks: stack emulated object array indexed by depth. Each element is consisted of:
+					'client': client object life-cycle managed by utility and used by client. 
+					'subtree': sub-tree nodes by reference.
+					'id': current array index or object property.
+		@callback_param depth: search depth indexed from 0.
+		@callback_param time: one of 3 search moments when callback occurs:
+					'fwd': when depth has advanced and its stack context has been created.
+					'bak': when depth is to decrease and context is to be cleared.
+					'mid': when a leaf node is found. */
+		function dfsTree (tree, cb) {
+			var trace = [],
+				obj_ids = [],
+				count = [],
+				depth,
+				node_cur,
+				ctx_cur;
+
+			// initialize search
+			obj_ids[0] = enumProp (tree);	// array of subtree properties in case it is an object.
+			count[0] = 0;	// used only in case of object subtree
+			trace[0] = {
+				client: {},
+				subtree: tree,
+				id: obj_ids[0] ? obj_ids[0][0] : 0
+			};
+			depth = 0;
+			cb (trace, 0, 'fwd');
+			// recursive process in iterative way
+			while (depth >= 0) {
+				if ((!obj_ids[depth] && count[depth] >= trace[depth].subtree.length) || 
+					(obj_ids[depth] && count[depth] >= obj_ids[depth].length)) {
+					// callback fires before stack pop
+					cb (trace, depth, 'bck');
+					trace.pop();
+					depth -= 1;
+					if (depth >= 0) {
+						count[depth] += 1;
+					}
+				} else {
+					ctx_cur = trace[depth];
+					ctx_cur.id = obj_ids[depth] ? obj_ids[depth][count[depth]] : count[depth];
+					node_cur = ctx_cur.subtree[ctx_cur.id];
+					if (isArray(node_cur) || isObject(node_cur)) {
+						depth += 1;
+						count[depth] = 0;
+						trace[depth] = {client: {}, subtree: node_cur, id: -1};
+						obj_ids[depth] = enumProp(node_cur);
+						// callback exec after stack push
+						cb (trace, depth, 'fwd');
 					} else {
-						cb.visit.call (ctx, depth, 'mid');
-						ctx.id++;
+						cb (trace, depth, 'mid');
+						count[depth] += 1;
 					}
 				}
 			}
 		}
-	}
-	function fieldsShow (fields) {
+
+		function enumProp (obj) {
+			var prop,
+				ret;
+			if (Object.prototype.toString(obj) === 'array object') {
+				ret = false;
+			} else {
+				ret = [];
+				for (prop in obj) {
+					if (obj.hasOwnProperty(prop)) {
+						ret.push (prop);
+					}
+				}
+			}
+			return ret;
+		}
+		
+		function isArray (obj) {
+			return Object.prototype.toString.call (obj) === '[object Array]';
+		}
+		
+		function isObject (obj) {
+			return Object.prototype.toString.call (obj) === '[object Object]';
+		}
+		
+		function panic (error_str) {
+			error_str = 'A JS exception is thrown: ' + error_str;
+			out (error_str);
+			throw new Error ();
+		}
+		
+		function out (str) {
+			$('<pre>' + str + '</pre>').appendTo ('body');
+			console.log (str);
+		}
+
+		return {
+			dfsTree: dfsTree,
+			isArray: isArray,
+			isObject: isObject,
+			out: out,
+			panic: panic
+		};
+	} ());
+/* 	function fieldsShow (fields) {
 		var field,
 			i, len,
 			tree, Tree;
 
 		// create a tree structure representing embedding and sequencial relationship of fields
 		tree = new Tree (fields);
-		fields.foreach (function (elem) {
+		fields.forEach (function (elem) {
 			tree.insert (elem.parent);
 		});
 		
@@ -225,18 +334,12 @@
 			
 		}
 	}
-    
-    function field_markup (field) {
-        var map_tmplt = {
-            'bootstrap': ['text', 'textarea', 'select', 'checkbox', 'radio'],
-            'custom': ['fieldset'],
-        };
-    }
-	
-	$(function () {
-		console.log ('formcast.js entered.');
-	});
-} (jQuery));
 
-
-
+	function field_markup (field) {
+		var map_tmplt = {
+			'bootstrap': ['text', 'textarea', 'select', 'checkbox', 'radio'],
+			'custom': ['fieldset'],
+		};
+	}
+*/
+} (jQuery, this));
