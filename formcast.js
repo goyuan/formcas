@@ -5,15 +5,43 @@
 		getBEFields,
 		convFields,
 		utility,
+		getOrderTree,
 		console = global.console;
 
 	$(function () {
 		var raw;
 		utility.out ('formcast.js entered.');
 		raw = getBEFields();
-		fields = convFields(raw);
+		fields = convFields (raw);
+		order_tree = getOrderTree (fields);
+		outEmbed (order_tree);
 	});
 
+	/* revert pre-order traverse vector to tree structure */
+	getOrderTree = function (fields) {
+		var root = {ref: 0},
+			trace = [root],
+			i = 0,
+			depth = 0,
+			node,
+			field;
+		
+		while (i < fields.length) {
+			field = fields[i];
+			while (depth >= 0 && trace[depth].id !== field.id) {
+				depth--;
+			}
+			if (!trace[depth].sub) {
+				trace[depth].sub = [];
+			}
+			node = {ref: field};
+			trace[depth].sub.push (node);
+			depth++;
+			trace[depth] = node;
+		}
+		return root;
+	};
+	
 	// mockup of form fields fed by server
 	getBEFields = function () {
 		var raw = [],
@@ -26,7 +54,8 @@
 
 		raw.push(schm);
 		raw.push([0, 'text', 'my_form_fld_1', ['input your name...']]);
-		raw.push([0, 'select', 'my_form_fld_2', [0, ['China', 'USA', 'India']]]);
+		raw.push([0, 'fieldset', 'my_form_fld_fs1']);
+		raw.push([1, 'select', 'my_form_fld_2', [0, ['China', 'USA', 'India']]]);
 		raw.push([0, 'radio', 'my_form_fld_3', [0, ['male', 'female']]]);
 		return raw;
 	};
@@ -69,14 +98,11 @@
 					last.sub[last.schm ? last.schm[id] : id] = cur.sub;
 				}
 				break;
-			case 'bck':
-				// nothing to do in addition to 'fwd'
-				break;
 			case 'mid':
 				// fill backend array value into frontend mapped property if scheme exists, or
 				// into increased array element otherwise.
 				id = stacks[depth].id;
-				cur.sub[cur.schm ? cur.schm[id] : id] = stacks[depth].subtree[id];
+				cur.sub[cur.schm ? cur.schm[id] : id] = stacks[depth].sub[id];
 				break;
 			default:
 				break;
@@ -101,7 +127,7 @@
 				}
 			}
 			if (!map_backend[schm] || !map_frontend[schm]) {
-if (depth == 2) {
+if (depth === 2) {
 	depth = 2;
 }
 			util.out ('No scheme to map on level '+depth+' backend frontend struct.');
@@ -138,7 +164,7 @@ if (depth == 2) {
 				'default': 'default',
 				'options': 'options',
 				'multiple':	'multiple'
-			}
+			},
 			'radio.init': {
 				'default': 'default',
 				'options': 'options',
@@ -158,12 +184,12 @@ if (depth == 2) {
 		@param cb: the callback functions for client to manipulate node in tree search:
 		@callback_param stacks: stack emulated object array indexed by depth. Each element is consisted of:
 					'client': client object life-cycle managed by utility and used by client. 
-					'subtree': sub-tree nodes by reference.
+					'sub': sub-tree nodes by reference.
 					'id': current array index or object property.
 		@callback_param depth: search depth indexed from 0.
 		@callback_param time: one of 3 search moments when callback occurs:
 					'fwd': when depth has advanced and its stack context has been created.
-					'bak': when depth is to decrease and context is to be cleared.
+					'bck': when depth is to decrease and context is to be cleared.
 					'mid': when a leaf node is found. */
 		function dfsTree (tree, cb) {
 			var trace = [],
@@ -178,17 +204,18 @@ if (depth == 2) {
 			count[0] = 0;	// used only in case of object subtree
 			trace[0] = {
 				client: {},
-				subtree: tree,
+				sub: tree,
 				id: obj_ids[0] ? obj_ids[0][0] : 0
 			};
 			depth = 0;
 			cb (trace, 0, 'fwd');
 			// recursive process in iterative way
 			while (depth >= 0) {
-				if ((!obj_ids[depth] && count[depth] >= trace[depth].subtree.length) || 
+				if ((!obj_ids[depth] && count[depth] >= trace[depth].sub.length) || 
 					(obj_ids[depth] && count[depth] >= obj_ids[depth].length)) {
+					// mark it for it seems only alternative to 'fwd'
 					// callback fires before stack pop
-					cb (trace, depth, 'bck');
+					//cb (trace, depth, 'bck');
 					trace.pop();
 					depth -= 1;
 					if (depth >= 0) {
@@ -197,14 +224,22 @@ if (depth == 2) {
 				} else {
 					ctx_cur = trace[depth];
 					ctx_cur.id = obj_ids[depth] ? obj_ids[depth][count[depth]] : count[depth];
-					node_cur = ctx_cur.subtree[ctx_cur.id];
+					node_cur = ctx_cur.sub[ctx_cur.id];
 					if (isArray(node_cur) || isObject(node_cur)) {
 						depth += 1;
-						count[depth] = 0;
-						trace[depth] = {client: {}, subtree: node_cur, id: -1};
-						obj_ids[depth] = enumProp(node_cur);
+						trace[depth] = {client: {}, sub: node_cur, id: -1};
 						// callback exec after stack push
-						cb (trace, depth, 'fwd');
+						count[depth] = cb (trace, depth, 'fwd');
+						// if got -1, trim branch
+						if (-1 === count[depth]) {
+							depth--;
+							continue;
+						}
+						// otherwise, extend from returned index. undefined equal to 0
+						if (undefined === count[depth]) {
+							count[depth] = 0;
+						}
+						obj_ids[depth] = enumProp(node_cur);
 					} else {
 						cb (trace, depth, 'mid');
 						count[depth] += 1;
@@ -246,6 +281,34 @@ if (depth == 2) {
 		function out (str) {
 			$('<pre>' + str + '</pre>').appendTo ('body');
 			console.log (str);
+		}
+		
+		function outEmbed (obj) {
+			var str = '',
+				tab = '\t',
+				cb;
+			cb = function (stacks, depth, flag) {
+				var i
+					temp;
+				i = depth;
+				while (i-- > 0) {
+					str += tab;
+				}
+				switch (flag) {
+				case 'fwd':
+					temp = stacks[depth - 1];
+					str += temp.id + ' => Array (\n';
+					break;
+				case 'mid':
+					temp = stacks[depth];
+					str += temp.id + ' => ' + temp.sub[temp.id] + '\n';
+					break;
+				default:
+					break;
+				}
+			};
+			dfsTree (obj, cb);
+			out (str);
 		}
 
 		return {
