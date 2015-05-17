@@ -1,35 +1,131 @@
-
+/* global jQuery */
 (function ($, global) {
 	"use strict";
 	var fields,
 		getBEFields,
 		convFields,
-		utility,
+		fieldsPreview,
+		util,
+		render,
 		getOrderTree,
 		console = global.console;
 
 	$(function () {
-		var raw;
-		utility.out ('formcast.js entered.');
+		var raw,
+			order_tree;
+		util.out ('formcast.js entered.');
 		raw = getBEFields();
 		fields = convFields (raw);
 		order_tree = getOrderTree (fields);
-		outEmbed (order_tree);
+		util.outEmbed (order_tree);
 	});
 
+	render = function (fieldObj, fieldRef, $parent) {
+		var _replaceTmpltWithProp = (function () {
+				var propArr = ['id', 'type', 'class', 'placeholder', 'options'],
+					count = [],
+					/* Here regExp is to match one of propArr which is preceded with ':' in subject string. The matched sub patterns include property name and optional radix when it's a array */
+					matchReg = 'sdf',
+					//matchReg = new RegExp('(?|(?:\:(' + propArr.join (')(\[\])?|(?:\:(') + ')))/g'),
+					replaceCallback = function (pattern, subpattern_1, subpattern_2){
+						var res;
+						res = fieldObj.hasOwnProperty (subpattern_1) ? 
+							fieldObj[subpattern_1] : '';
+						if (subpattern_2 === '[]') {
+							count[subpattern_1] = count[subpattern_1] === undefined ?
+								0 : 1 + count[subpattern_1];
+							res = res[count[subpattern_1]];
+						}
+						return res;
+					};
+
+				return function (tmplt, fieldObj) {
+						count = [];
+						return tmplt.replace (matchReg, replaceCallback);
+					};
+			} ()),
+			replaceTmpltWithProp = function (tmplt, fieldObj, fieldRef, $parent) {
+				fieldRef.container = $(replaceTmpltWithProp (tmplt, fieldObj));
+				if ($parent.container !== null) {
+					$parent.container.append(fieldRef.container);
+				}
+			},
+			renderSelect = function (fieldObj, fieldRef, $parent) {
+				var i,
+					length,
+					tmplt_select = '<select class="form-control">';
+
+				fieldObj.options = fieldObj.init.options;
+				for (i = 0, length = fieldObj.init.options.length; i < length; i++) {
+					tmplt_select += '<optoin>:options[]</option>';
+				}
+				tmplt_select += '</select>';
+
+				replaceTmpltWithProp(tmplt_select, fieldObj, fieldRef, $parent);
+				delete fieldObj.options;
+			},
+			renderRoot = function (fieldObj, fieldRef, $parent) {
+				fieldRef.container = $('<form></form>');
+			},
+			renderFieldset = function (fieldObj, fieldRef, $parent) {
+				var tmplt_fieldset = '<div class="panel panel-info">' +
+					'<div class="panel-heading">:label</div>' +
+						'<div class="panel-body">' +
+						'</div>' +
+					'</div>';
+				replaceTmpltWithProp(tmplt_fieldset, fieldObj, fieldRef, $parent);
+				fieldRef.container = fieldRef.container.find('.panel-body');
+			},
+			renderNormal = function (fieldObj, fieldRef, $parent) {
+				var tmplt_normal = '<div class="form-group">' +
+							'<label for=":id">:label</label>' +
+							'<input type=":type" class=":class" id=":id" placeholder=":placeholder">' +
+						'</div>';
+				replaceTmpltWithProp(tmplt_normal, fieldObj, fieldRef, $parent);
+			},
+			map_render = {
+				'root': renderRoot,
+				'text': renderNormal,
+				'feldset': renderFieldset,
+				'select': renderSelect
+			};
+		arguments.shift();
+		map_render[fieldObj.type].apply (null, arguments);
+		
+	};
+
+	fieldsPreview = function (tree) {
+		var rootRef = {container: null},
+			cb = function (stacks, depth, flag) {
+				switch (flag) {
+				case 'fwd':
+					stacks[depth].client = depth ? {container: null} : rootRef;
+					return render (stacks[depth].sub.ref, stacks[depth].client,
+						depth ? stacks[depth - 1].client : null);
+				default:
+					break;
+				}
+			};
+		util.dfsTree(tree, cb, {'fwd': 0, 'mid': 1, 'bck': 1});
+	};
+	
 	/* revert pre-order traverse vector to tree structure */
 	getOrderTree = function (fields) {
-		var root = {ref: 0},
-			trace = [root],
+		var root = {ref: {id: 0}},
+			trace = [],
 			i = 0,
 			depth = 0,
 			node,
 			field;
 		
+		trace.push(root);
 		while (i < fields.length) {
 			field = fields[i];
-			while (depth >= 0 && trace[depth].id !== field.id) {
+			while (depth >= 0 && trace[depth].ref.id !== field.parent) {
 				depth--;
+				if (depth < 0) {
+					util.panic ('Error on input node without valid parent.');
+				}
 			}
 			if (!trace[depth].sub) {
 				trace[depth].sub = [];
@@ -38,11 +134,12 @@
 			trace[depth].sub.push (node);
 			depth++;
 			trace[depth] = node;
+			i++;
 		}
 		return root;
 	};
 	
-	// mockup of form fields fed by server
+	// mockup of form fields fed from back end server
 	getBEFields = function () {
 		var raw = [],
 			schm = {
@@ -55,7 +152,7 @@
 		raw.push(schm);
 		raw.push([0, 'text', 'my_form_fld_1', ['input your name...']]);
 		raw.push([0, 'fieldset', 'my_form_fld_fs1']);
-		raw.push([1, 'select', 'my_form_fld_2', [0, ['China', 'USA', 'India']]]);
+		raw.push(['my_form_fld_fs1', 'select', 'my_form_fld_2', [0, ['China', 'USA', 'India']]]);
 		raw.push([0, 'radio', 'my_form_fld_3', [0, ['male', 'female']]]);
 		return raw;
 	};
@@ -64,7 +161,6 @@
 	convFields = function (raw) {
 		var map_backend,
 			map_frontend,
-			util = utility,
 			cb,
 			getScheme,
 			fields;	// frontend array of field objects
@@ -121,16 +217,13 @@
 				if (last_schm && last.client.sub.type) {
 					schm = last.client.sub.type + '.' + last_schm[last.id];
 					// restore if unspecified 
-					if ('undefined' === map_backend[schm]) {
+					if (undefined === map_backend[schm]) {
 						schm = depth;
 					}
 				}
 			}
 			if (!map_backend[schm] || !map_frontend[schm]) {
-if (depth === 2) {
-	depth = 2;
-}
-			util.out ('No scheme to map on level '+depth+' backend frontend struct.');
+				util.out ('No scheme to map on level '+depth+' backend frontend struct.');
 				map = false;
 			} else {
 				map_backend[schm].forEach(function (v, i) {
@@ -173,15 +266,26 @@ if (depth === 2) {
 		};
 		map_backend = raw.shift ();
 
-		util.dfsTree (raw, cb);
+		util.dfsTree (raw, cb, {'fwd': 0, 'mid': 0, 'bck': 1});
 		return fields;
 	};
 
-	utility = (function () {
+	util = (function () {
+		var dfsTree,
+			enumProp,
+			isObject,
+			isArray,
+			out,
+			panic,
+			outEmbed,
+			str_repeat;
+
 		/* @method dfsTree: The fabric of depth first search on a tree implemented by js object or js array.
-			Client may reuse it to abstract the customized logic from of tree traverse.
+		Client may reuse it to abstract the customized logic from of tree traverse.
+		Another, branch cut in middle of traverse is permitted and controlled by callback returned value;
 		@param tree: the data structure of tree in array or in associative object.
 		@param cb: the callback functions for client to manipulate node in tree search:
+		@param cb_mask: callback mask.
 		@callback_param stacks: stack emulated object array indexed by depth. Each element is consisted of:
 					'client': client object life-cycle managed by utility and used by client. 
 					'sub': sub-tree nodes by reference.
@@ -191,13 +295,14 @@ if (depth === 2) {
 					'fwd': when depth has advanced and its stack context has been created.
 					'bck': when depth is to decrease and context is to be cleared.
 					'mid': when a leaf node is found. */
-		function dfsTree (tree, cb) {
+		dfsTree = function (tree, cb, cb_mask) {
 			var trace = [],
 				obj_ids = [],
 				count = [],
 				depth,
 				node_cur,
-				ctx_cur;
+				ctx_cur,
+				i;
 
 			// initialize search
 			obj_ids[0] = enumProp (tree);	// array of subtree properties in case it is an object.
@@ -213,9 +318,10 @@ if (depth === 2) {
 			while (depth >= 0) {
 				if ((!obj_ids[depth] && count[depth] >= trace[depth].sub.length) || 
 					(obj_ids[depth] && count[depth] >= obj_ids[depth].length)) {
-					// mark it for it seems only alternative to 'fwd'
 					// callback fires before stack pop
-					//cb (trace, depth, 'bck');
+					if (!cb_mask.bck) {
+						cb (trace, depth, 'bck');
+					}
 					trace.pop();
 					depth -= 1;
 					if (depth >= 0) {
@@ -228,27 +334,38 @@ if (depth === 2) {
 					if (isArray(node_cur) || isObject(node_cur)) {
 						depth += 1;
 						trace[depth] = {client: {}, sub: node_cur, id: -1};
-						// callback exec after stack push
-						count[depth] = cb (trace, depth, 'fwd');
-						// if got -1, trim branch
-						if (-1 === count[depth]) {
-							depth--;
-							continue;
-						}
-						// otherwise, extend from returned index. undefined equal to 0
-						if (undefined === count[depth]) {
-							count[depth] = 0;
-						}
+						count[depth] = 0;
 						obj_ids[depth] = enumProp(node_cur);
+						if (!cb_mask.fwd) {
+							// callback exec after stack push
+							// if got negative, cut branch
+							i = cb (trace, depth, 'fwd');
+							if (i < 0) {
+								depth--;
+								continue;
+							}
+							// otherwise, extend from returned index. undefined equal to 0
+							// notice the nuance between index and mapped property in case of object
+							if (undefined === i) {
+								i = 0;
+							}
+							count[depth] = i;
+						}
 					} else {
-						cb (trace, depth, 'mid');
 						count[depth] += 1;
+						if (!cb_mask.mid) {
+							i = cb (trace, depth, 'mid');
+							if (i > count[depth]) {	// protect from endless iteration
+								count[depth] = i;
+							}
+						}
 					}
 				}
 			}
-		}
+			
+		};
 
-		function enumProp (obj) {
+		enumProp = function (obj) {
 			var prop,
 				ret;
 			if (Object.prototype.toString(obj) === 'array object') {
@@ -262,147 +379,82 @@ if (depth === 2) {
 				}
 			}
 			return ret;
-		}
+		};
 		
-		function isArray (obj) {
+		isArray = function (obj) {
 			return Object.prototype.toString.call (obj) === '[object Array]';
-		}
+		};
 		
-		function isObject (obj) {
+		isObject = function (obj) {
 			return Object.prototype.toString.call (obj) === '[object Object]';
-		}
+		};
 		
-		function panic (error_str) {
+		panic = function (error_str) {
 			error_str = 'A JS exception is thrown: ' + error_str;
 			out (error_str);
 			throw new Error ();
-		}
+		};
 		
-		function out (str) {
+		out = function (str) {
 			$('<pre>' + str + '</pre>').appendTo ('body');
 			console.log (str);
-		}
+		};
 		
-		function outEmbed (obj) {
-			var str = '',
+		outEmbed = function (obj) {
+			var str,
 				tab = '\t',
-				cb;
-			cb = function (stacks, depth, flag) {
-				var i
-					temp;
-				i = depth;
-				while (i-- > 0) {
-					str += tab;
-				}
-				switch (flag) {
-				case 'fwd':
-					temp = stacks[depth - 1];
-					str += temp.id + ' => Array (\n';
-					break;
-				case 'mid':
-					temp = stacks[depth];
-					str += temp.id + ' => ' + temp.sub[temp.id] + '\n';
-					break;
-				default:
-					break;
-				}
-			};
-			dfsTree (obj, cb);
+				cb = function (stacks, depth, flag) {
+					var i;
+
+					if (flag === 'fwd' || flag === 'bck') {
+						depth--;
+					}
+					str += str_repeat (tab, depth + 1);
+
+					switch (flag) {
+					case 'fwd':
+						if (depth < 0) {
+							str = 'Array (\n';
+						} else {
+							str += stacks[depth].id + ' => Array (\n';
+						}
+						break;
+					case 'mid':
+						i = stacks[depth];
+						str += i.id + ' => ' + i.sub[i.id] + '\n';
+						break;
+					case 'bck':
+						str += ')\n';
+						break;
+					default:
+						break;
+					}
+				};
+				
+			dfsTree (obj, cb, {'fwd': 0, 'mid': 0, 'bck': 0});
 			out (str);
-		}
+		};
+		
+		str_repeat = function (str, times) {
+			var res = '';
+			while (times > 0) {
+				if (times & 1) {	/* jslint bitwise: true */
+					res += str;
+				}
+				str += str;
+				times >>= 1;
+			}
+			return res;
+		};
 
 		return {
 			dfsTree: dfsTree,
 			isArray: isArray,
 			isObject: isObject,
 			out: out,
-			panic: panic
+			panic: panic,
+			outEmbed: outEmbed,
+			str_repeat: str_repeat
 		};
-	} ());
-/* 	function fieldsShow (fields) {
-		var field,
-			i, len,
-			tree, Tree;
-
-		// create a tree structure representing embedding and sequencial relationship of fields
-		tree = new Tree (fields);
-		fields.forEach (function (elem) {
-			tree.insert (elem.parent);
-		});
-		
-		function render (elm) {
-			var type,
-				;
-			this.text = function (elm) {
-				var html;
-				html = 'div class="form-group">
-						<label for="' + elm.id + '">' + elm.init + '</label>
-						<input type="text" class="form-control" id="' + elm.id + '" placeholder="">
-						</div>';
-			}
-		}
-		function (elm) {
-			var container = $('.container');
-			
-			container.append (render (elm));
-		}
-		// render the elements traversing the tree
-		tree.traverse ({pre_cb: function (elm) {
-			
-		}, post_cb: function (order) {
-		}, 0});
-		
-		Tree = function (elms) {
-			var order = 0,
-				Node;
-			this.elements = elms;
-			this.vect = [new Node ()];	// virtual root node
-			
-			Node = function () {
-				this.next = undefined;
-				this.childs = [];
-				this.order = order++;
-				// sort none cuz it assumes node nodes be given in sorted order
-				this.addChild = function (node) {
-					var orig_len = this.childs.length;
-					this.childs[orig_len - 1].next = node;
-					this.childs.push (node);
-				}
-			};
-			
-			this.traverse = function (pre_cb, post_cb, order) {
-				var node;
-				
-				pre_cb.apply (this.elements[order]);
-				node = this.vect[order].childs;
-				if (node.length) {
-					node = node[0];
-					while (node) {
-						this.traverse(pre_cb, post_cb, node.order);
-						node = node.next;
-					}
-				}
-				post_cb.apply (this.elements[order]);
-			};
-			
-
-			// assume elements are added into tree in same order as vertically positioned in its CSS block formatting context. This is reflected in Tree by the index of array vect. Index 0 is preserved to be tree root and the real elements are ordered starting from 1.
-			this.insert = function (parent) {
-				var node,
-					vect = this.vect;
-				node = new Node (order, parent);
-				vect[parent].addChild (node);
-				vect.push (node);
-			};
-			
-		}
-	}
-
-	function field_markup (field) {
-		var map_tmplt = {
-			'bootstrap': ['text', 'textarea', 'select', 'checkbox', 'radio'],
-			'custom': ['fieldset'],
-		};
-	}
-*/
+	}());
 } (jQuery, this));
