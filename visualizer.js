@@ -1,4 +1,3 @@
-export.default = visulizeTree;
 
 const getTreeNode = (embedded, parentNode = null) => {
 	const hasChildren = typeof embedded.children === 'object',
@@ -11,16 +10,16 @@ const getTreeNode = (embedded, parentNode = null) => {
 
 	if (hasChildren) {
 		treeNode.children = hasMultiChildren ? 
-			embedded.children.map((child, i) => getTreeNode(child, treeNode, preVisitor, postVisitor))
-			: new Array(getTreeNode(embedded.children, treeNode, preVisitor, postVisitor));
+			embedded.children.map((child, i) => getTreeNode(child, treeNode))
+			: new Array(getTreeNode(embedded.children, treeNode));
 	}
 
 	return treeNode;
 }
 
-const visitTree = (treeNode, preVisitor = null, postVisitor = null, router = {}) => {
+const visitTree = (treeNode, preVisitor = undefined, postVisitor = undefined, router = {}) => {
 	const {children, visitId} = treeNode;
-	preVisitor(treeNode);
+	preVisitor && preVisitor(treeNode);
 	if (children) {
 		if (visitId instanceof Number && visitId < children.length) {
 			visitTree(children[visitId], preVisitor, postVisitor);
@@ -30,7 +29,7 @@ const visitTree = (treeNode, preVisitor = null, postVisitor = null, router = {})
 			}
 		}
 	}
-	postVisitor(treeNode);
+	postVisitor && postVisitor(treeNode);
 }
 
 const depthFirstVisitTree = visitTree;
@@ -56,7 +55,7 @@ const visulizeTree = (embedded, displayNonLeaf, displayLeaf) => {
 
 	// a first and complete tree traverse building context properties for drawing.
 	depthFirstVisitTree(helperTree, null, provisions);
-	const provisions = (node) => {
+	var provisions = (node) => {
 		const {children} = node;
 
 		const iLeafOrNot = Boolean(!children),
@@ -80,7 +79,7 @@ const visulizeTree = (embedded, displayNonLeaf, displayLeaf) => {
 	};
 
 	// act drawing line by line.
-	while (helperTree.visitId < helperTree.children.length) {
+	while (helperTree.children && helperTree.visitId < helperTree.children.length) {
 		depthFirstVisitTree(helperTree, null, drawOneLine)
 	}
 	const drawOneLine = (node) => {
@@ -149,3 +148,5 @@ const visulizeTree = (embedded, displayNonLeaf, displayLeaf) => {
 		}
 	}
 }
+
+export default visulizeTree;

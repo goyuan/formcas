@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 
-import default as visualize from "visualizer";
+import {default as visualize} from "./visualizer.js";
 
 const query = cheerio.load('https://vuejs.org/guide/introduction.html');
 const htmlTree = query('main');
