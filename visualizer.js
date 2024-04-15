@@ -1,125 +1,97 @@
-
-const getTreeNode = (embedded, parentNode = null) => {
-	const hasChildren = typeof embedded.children === 'object',
-		hasMultiChildren = hasChildren && embedded.children instanceof Array,
-		treeNode = {
-			parent: parentNode, 
-			ref: embedded,
-			children: null,
-		};
-
-	if (hasChildren) {
-		treeNode.children = hasMultiChildren ? 
-			embedded.children.map((child, i) => getTreeNode(child, treeNode))
-			: new Array(getTreeNode(embedded.children, treeNode));
-	}
-
-	return treeNode;
-}
-
-const visitTree = (treeNode, preVisitor = undefined, postVisitor = undefined, router = {}) => {
-	const {children, visitId} = treeNode;
-	preVisitor && preVisitor(treeNode);
-	if (children) {
-		if (visitId instanceof Number && visitId < children.length) {
-			visitTree(children[visitId], preVisitor, postVisitor);
-		} else {
-			for (let child of children) {
-				visitTree(child, preVisitor, postVisitor)
-			}
-		}
-	}
-	postVisitor && postVisitor(treeNode);
-}
-
 const depthFirstVisitTree = visitTree;
-const createObjectsTree = (embedded) => getTreeNode(embedded);
+const createObjectsTree = getTreeNode;
 
-const visulizeTree = (embedded, displayNonLeaf, displayLeaf) => {
+const visualizeTree = (embedded, displayNonLeaf, displayLeaf) => {
 	// environment parameters.
 	const boxBorderWidth = 1,
-		maxTextBoxWidth = [6, 20],	// array index: 0 for noneLeafNode; 1 for leafNode;
-		graphBox = {
+		maxTextAreaWidth = [6, 6],	// array index: 0 for noneLeafNode; 1 for leafNode;
+		glyphBox = {
 			topLeft: '+', topRight: '+', bottomLeft: '+', bottomRight: '+',
 			top: '-', bottom: '-', left: '|', right: '|',
 		},
-		graphArrow = {lead: '-', tail: '-', cross: '+'},
-		graphBlank = ' ';
-
-	// helper methods
-	const centerOf = a => (a / 2 + 1),
-		max = (a, b) => a > b ? a : b;
+		glyphArrow = {lead: '-', tail: '-', cross: '+'},
+		glyphBlank = ' ';
 
 	// tree wrapper for target embedded object.
 	const helperTree = createObjectsTree(embedded);
 
 	// a first and complete tree traverse building context properties for drawing.
 	depthFirstVisitTree(helperTree, null, provisions);
-	var provisions = (node) => {
-		const {children} = node;
+	function provisions (node) {
+		const {children, ref} = node;
 
-		const iLeafOrNot = Boolean(!children),
-			maxVirtual = maxTextBoxWidth[iLeafOrNot],
-			bMultiLineText = nodeText.length > maxVirtual;
+		const bLeafOrNot = Boolean(!children),
+			nodeText = bLeafOrNot ? displayLeaf(ref) : displayNonLeaf(ref),
+			maxVirtual = maxTextAreaWidth[+bLeafOrNot],
+			residue = nodeText.length % maxVirtual,
+			bMultiLineText = nodeText.length > maxVirtual,
+			textBoxHight = parseInt(nodeText.length / maxVirtual) + Boolean(residue) + boxBorderWidth * 2;
 
-		const nodeText = children ? displayNonLeafNode(ref) : displayLeafNode(ref);
-
-		return Object.assign(node, {
-			visitId: iLeafOrNot ? null : 0,
-			scopeBoxHight: iLeafOrNot 
-				? nodeText.length / innerTextBoxWid + boxBorderWidth * 2
-				: max(nodeText.length / innerTextBoxWid + boxBorderWidth * 2,
-				children.reduce((x, y) => (x.scopeBoxHight + y))),
-			nodeText: (bMultiLineText
-				? nodeText.concat(new Array(graphBlank, maxVirtual - nodeText.length % maxVirtual))
-				: nodeText),
+		Object.assign(node, {
+			cntLine: 0,
+			visitId: bLeafOrNot ? null : 0,
+			nodeText,
+			textBoxHight,
+			scopeBoxHight: bLeafOrNot 
+				? textBoxHight
+				: MAX(textBoxHight, children.reduce((last, {scopeBoxHight}) => (scopeBoxHight + last), 0)),
 			textAreaWidth: (bMultiLineText ? maxVirtual : nodeText.length),
-			textBoxHight: (bMultiLineText ? nodeText.length / maxVirtual : 1) + boxBorderWidth * 2,
 		});
+		// console.log(maxVirtual);
+		// console.log(node);
 	};
+// console.log(helperTree);
+
+	const lineBuffer = getLineBuffer(),
+		glyphsFlushGenerator = getGlyphFlushGenerator(),
+		fillBlanks = (size) => lineBuffer.append(glyphsFlushGenerator(glyphBlank, size));
 
 	// act drawing line by line.
-	while (helperTree.children && helperTree.visitId < helperTree.children.length) {
-		depthFirstVisitTree(helperTree, null, drawOneLine)
+	while (helperTree.cntLine < helperTree.scopeBoxHight) {
+		depthFirstVisitTree(helperTree, drawOneLine, null);
+		// depthFirstVisitTree(helperTree, testdrawOneLine, (node) => {node.visitId; node.cntLine++});
+		// function testdrawOneLine (node) {console.log(node.nodeText);}
 	}
-	const drawOneLine = (node) => {
-		const drawTokens = (str) => console.log(str);
-		const fillBlanks = (size) => drawTokens(new Array(graphBlank, size));
-
+	// console.log('end mark.')
+	function drawOneLine (node) {
 		// cntLine for line count in scope.
-		const {cntLine = 0, parent, visitId, scopeBoxHight, textBoxHight} = node;
+		let {cntLine, children, parent, visitId, nodeText, scopeBoxHight, textAreaWidth, textBoxHight} = node;
 
 		// advance interator for line counts in node scope and tree visiting router
-		if (++node.cntLine >= scopeBoxHight && parent) {
+		node.cntLine = ++cntLine;
+		if (cntLine >= scopeBoxHight && parent) {
 			parent.visitId++;
 		}
 
-		// drawing model: 
+		// Drawing Model: 
 		// * scope-box is a recursive rectangle box accommondate all its children's scope-boxes. 
 		// * text-box is bordered rectangle box surrounding node text. 
 		// * text-box is verically center-aligned, horizontally left-aligned against its scope-box.
 		const inCenter = cntLine === centerOf(scopeBoxHight),
-			lineOnBoxTop = centerOf(scopeBoxHight) - centerOf(textBoxHight) + 1,
-			delta = cntLine - lineOnBoxTop;
+			origLineOfTextBox = centerOf(scopeBoxHight) - centerOf(textBoxHight),
+			delta = cntLine - origLineOfTextBox;
 
 		// inline draw, going through the section where text-box exists.
-		if (delta === 0) {
-			drawTokens(graphBox.topLeft
-				+ new Array(graphBox.top, textAreaWidth)
-				+ graphBox.topRight
+		if (delta === boxBorderWidth) {
+			lineBuffer.append(glyphBox.topLeft
+				+ glyphsFlushGenerator(glyphBox.top, textAreaWidth)
+				+ glyphBox.topRight
 			);
-		} else if (delta === textBoxHight - 1) {
-			drawTokens(graphBox.bottomLeft
-				+ new Array(graphBox.bottom, textAreaWidth)
-				+ graphBox.bottomRight
+		} else if (delta === textBoxHight) {
+			lineBuffer.append(glyphBox.bottomLeft
+				+ glyphsFlushGenerator(glyphBox.bottom, textAreaWidth)
+				+ glyphBox.bottomRight
 			);
-		} else if (delta > 0 && delta < textBoxHight - 1) {
-			drawTokens(graphBox.left
+		} else if (delta > boxBorderWidth && delta < textBoxHight) {
+			const cntTextLine = delta - boxBorderWidth,
+				textTo = MIN(cntTextLine * textAreaWidth, nodeText.length);
+			lineBuffer.append(glyphBox.left
 				+ nodeText.substring(
-					(delta - 1) * textAreaWidth,
-					delta * textAreaWidth + 1,
+					(cntTextLine - 1) * textAreaWidth,
+					textTo,
 				)
-				+ graphBox.right
+				+ glyphsFlushGenerator(glyphBlank, cntTextLine * textAreaWidth - textTo)
+				+ glyphBox.right
 			);
 		} else {
 			fillBlanks(textAreaWidth + boxBorderWidth * 2);
@@ -128,25 +100,103 @@ const visulizeTree = (embedded, displayNonLeaf, displayLeaf) => {
 		// inline draw, going through the section where inter-box arrow exists.
 		if (children) {
 			if (inCenter) {
-				drawTokens(graphArrow.lead);
+				lineBuffer.append(glyphArrow.lead);
 			} else {
-				fillBlanks(graphArrow.lead.length);
+				fillBlanks(glyphArrow.lead.length);
 			}
 			
-			const trailArrowLineNos = children.map(v => centerOf(v.scopeBoxHight));
+			const trailArrowLineNos = (() => {
+					let sum = 0;
+					return children.map(({scopeBoxHight}) => {
+						sum += scopeBoxHight;
+						return (sum - scopeBoxHight + centerOf(scopeBoxHight));
+					});
+				})();
 			if (trailArrowLineNos.includes(cntLine)) {
-				drawTokens(graphArrow.cross + graphArrow.tail);
+				lineBuffer.append(glyphArrow.cross + glyphArrow.tail);
 			} else {
 				const findId = trailArrowLineNos.findIndex(v => cntLine <= v);
-				if (findId === 0 || !findId) {
-					fillBlanks(String(graphArrow.tail + graphArrow.tail).length);
+				if (findId === 0 || findId === -1) {
+					fillBlanks(String(glyphArrow.tail + glyphArrow.tail).length);
 				} else {
-					drawTokens(inCenter ? graphArrow.cross : graphBox.left);
-					fillBlanks(graphArrow.tail.length);
+					lineBuffer.append(inCenter ? glyphArrow.cross : glyphBox.left);
+					fillBlanks(glyphArrow.tail.length);
 				}
 			}
+		}
+
+		// dump buffered line
+		if (visitId === null || visitId >= children.length) {
+			// lineBuffer.append(nodeText);
+			lineBuffer.dump();
 		}
 	}
 }
 
-export default visulizeTree;
+/* Below are helper functions to be hoisted. */ 
+
+// helper methods
+function centerOf (a) {return (parseInt(a / 2) + (a % 2));}
+function MAX (a, b) {return (a >= b ? a : b);}
+function MIN (a, b) {return (a >= b ? b : a);}
+
+function getLineBuffer () {
+	let buffer = '';
+	return {
+		append: (str) => {buffer += str},
+		dump: () => {
+			console.log(buffer);
+			buffer = '';
+		}
+	}
+}
+
+function getGlyphFlushGenerator () {
+	let cache = {};
+	return (glyph, size) => {
+		let tmplt = cache[glyph] ? cache[glyph] : String(glyph);
+		if (tmplt.length < size) {
+			let	len = tmplt.length;
+			while (len < size) {
+				tmplt += tmplt;
+				len *= 2;
+			}
+			cache[glyph] = tmplt;
+		}
+		return tmplt.substring(0, size);
+	}
+}
+
+function getTreeNode (embedded, parentNode = null) {
+	const treeNode = {
+			parent: parentNode, 
+			ref: embedded,
+			children: null,
+		};
+
+	embedded.children instanceof Array
+		? treeNode.children = embedded.children.map((child, i) => getTreeNode(child, treeNode))
+		: null;
+
+	return treeNode;
+}
+
+function visitTree (treeNode, preVisitor = null, postVisitor = null) {
+	const {children, visitId} = treeNode;
+	preVisitor && preVisitor(treeNode);
+	if (children instanceof Array) {
+		if (visitId != undefined) {
+			if (visitId < children.length) {
+				visitTree(children[visitId], preVisitor, postVisitor);
+			}
+		} 
+		else {
+			for (let child of children) {
+				visitTree(child, preVisitor, postVisitor)
+			}
+		}
+	}
+	postVisitor && postVisitor(treeNode);
+}
+
+export {visualizeTree, visitTree};
